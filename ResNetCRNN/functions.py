@@ -32,6 +32,7 @@ class Dataset_CRNN(data.IterableDataset):
         self.video_files = list(map(os.path.basename, glob.glob(os.path.join(path, "*.mp4"))))
         self.seq_len = seq_len
         self.transform = transform
+        self.fps_halving_limit = 40
 
     def __iter__(self):
         for filename in self.video_files:
@@ -48,11 +49,12 @@ class Dataset_CRNN(data.IterableDataset):
             gt = json.load(open(os.path.join(self.path, filename_wo_ext + ".funscript")))['actions']
             positions = [int(x['pos'])/100 for x in gt]
             frame_id = [int(x['at']) * fps // 1000 for x in gt]
-            positions_interp = np.interp(range(frame_count), frame_id, positions, left=0, right=0)
+            positions_interp = np.interp(range(0, frame_count, 2 if fps > self.fps_halving_limit else 1), frame_id, positions, left=0, right=0)
 
             frames = []
             counter = 0
             is_new_vid = True
+            skip = False
             while cap.isOpened():
                 if len(frames) == self.seq_len:
                     i = counter - len(frames)
@@ -70,10 +72,16 @@ class Dataset_CRNN(data.IterableDataset):
                 if counter == 0:
                     counter += 1
                     continue
+                if fps > self.fps_halving_limit:
+                    if skip:
+                        skip = False
+                        continue
+                    skip = True
                 if self.transform:
                     frame = self.transform(Image.fromarray(frame))
                 frames.append(frame)
                 counter += 1
+
             cap.release()
 
 ## ---------------------- end of Dataloaders ---------------------- ##
