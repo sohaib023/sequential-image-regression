@@ -23,6 +23,8 @@ data_path = "./data/"    # define UCF-101 RGB data path
 action_name_path = './UCF101actions.pkl'
 save_model_path = "./ResNetCRNN_ckpt/"
 
+os.makedirs(save_model_path, exist_ok=True)
+
 # EncoderCNN architecture
 CNN_fc_hidden1, CNN_fc_hidden2 = 1024, 768
 CNN_embed_dim = 512   # latent dim extracted by 2D CNN
@@ -91,27 +93,8 @@ def validation(model, device, optimizer, test_loader):
     test_loss = 0
     all_y = []
     all_y_pred = []
+    total_batches = 0
     with torch.no_grad():
-
-            output = output.flatten()
-            out_speed = output[1:] - output[:-1]
-
-            pos_loss = F.mse_loss(output, y[:, 0])
-            speed_loss = F.mse_loss(out_speed, y[1:, 1])
-
-            loss = 0.5 * pos_loss + 0.5 * speed_loss
-
-            losses.append((pos_loss.item(), speed_loss.item()))
-
-            loss.backward()
-            optimizer.step()
-
-            # show information
-            if (batch_idx + 1) % log_interval == 0:
-                print('Train Epoch: {} [{}]\tPosition Loss: {:.6f}, Speed Loss: {:.6f}'.format(
-                    epoch + 1, batch_idx, pos_loss.item(), speed_loss.item()))
-
-
         for batch_idx, (X, y, is_new) in enumerate(test_loader):
             if is_new[0].item():
                 h_n = c_n = None
@@ -129,12 +112,12 @@ def validation(model, device, optimizer, test_loader):
             loss = 0.5 * pos_loss + 0.5 * speed_loss
 
             test_loss += loss.item()
-
+            total_batches += 1
             # collect all y and y_pred in all batches
             # all_y.extend(y)
             # all_y_pred.extend(y_pred)
 
-    test_loss /= len(test_loader.dataset)
+    test_loss /= total_batches
 
     # # compute accuracy
     # all_y = torch.stack(all_y, dim=0)
@@ -142,7 +125,7 @@ def validation(model, device, optimizer, test_loader):
     # test_score = accuracy_score(all_y.cpu().data.squeeze().numpy(), all_y_pred.cpu().data.squeeze().numpy())
 
     # show information
-    print('\nTest set ({:d} samples): Average loss: {:.4f}, Accuracy: {:.2f}%\n'.format(len(all_y), test_loss, 100* test_score))
+    print('\nTest set ({:d} samples): Average loss: {:.4f}\n'.format(total_batches, test_loss))
 
     # save Pytorch models of best record
     torch.save(cnn_encoder.state_dict(), os.path.join(save_model_path, 'cnn_encoder_epoch{}.pth'.format(epoch + 1)))  # save spatial_encoder
@@ -150,7 +133,7 @@ def validation(model, device, optimizer, test_loader):
     torch.save(optimizer.state_dict(), os.path.join(save_model_path, 'optimizer_epoch{}.pth'.format(epoch + 1)))      # save optimizer
     print("Epoch {} model saved!".format(epoch + 1))
 
-    return test_loss, test_score
+    return test_loss
 
 
 # Detect devices
@@ -209,23 +192,20 @@ epoch_test_scores = []
 for epoch in range(epochs):
     # train, test model
     train_losses, train_scores = train(log_interval, [cnn_encoder, rnn_decoder], device, train_loader, optimizer, epoch)
-    epoch_test_loss, epoch_test_score = validation([cnn_encoder, rnn_decoder], device, optimizer, valid_loader)
+    epoch_test_loss = validation([cnn_encoder, rnn_decoder], device, optimizer, valid_loader)
 
     # save results
     epoch_train_losses.append(train_losses)
     epoch_train_scores.append(train_scores)
     epoch_test_losses.append(epoch_test_loss)
-    epoch_test_scores.append(epoch_test_score)
 
     # save all train test results
     A = np.array(epoch_train_losses)
     B = np.array(epoch_train_scores)
     C = np.array(epoch_test_losses)
-    D = np.array(epoch_test_scores)
     np.save('./CRNN_epoch_training_losses.npy', A)
     np.save('./CRNN_epoch_training_scores.npy', B)
     np.save('./CRNN_epoch_test_loss.npy', C)
-    np.save('./CRNN_epoch_test_score.npy', D)
 
 # plot
 fig = plt.figure(figsize=(10, 4))
